@@ -1,13 +1,30 @@
-# Data Interface (股票行情数据接口代理服务)
+# Data Interface - A股高频 Level-2 行情接口代理中间件
 
-> 🚀 **面向高频量化交易与数据分析的高性能 A 股行情网关与协议代理中间件**
+> 🚀 **专为 QMT、PTrade、vn.py、Python 量化交易与 MQTT/WebSocket 推流打造的高性能 A 股行情网关**
 
 [![Release](https://img.shields.io/github/v/release/baseredge/data-interface?color=blue&label=Latest%20Release)](https://github.com/baseredge/data-interface/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-brightgreen)]()
+[![Ecosystem](https://img.shields.io/badge/Ecosystem-QMT%20%7C%20PTrade%20%7C%20vn.py%20%7C%20MQTT-red)]()
 [![Language](https://img.shields.io/badge/Language-C%2B%2B23-blue)]()
 [![Protocol](https://img.shields.io/badge/Protocol-HTTP%20%2F%20WebSocket-orange)]()
 
-`Data Interface` 是基于现代 **C++23** 构建的高性能金融行情代理与协议转换服务。它将上游复杂的底层长连接与高频二进制数据流，无缝转换为量化策略极易接入的标准 **HTTP RESTful API** 与 **WebSocket JSON 实时推送流**。
+`Data Interface` 是面向国内量化投资与高频交易团队研发的本地行情代理中间件。基于现代 **C++23** 编写，致力于解决量化实盘与回测中的核心痛点：将底层复杂的高频长连接与私有二进制行情流，在本地近源转换为标准化、极易接入的 **WebSocket JSON 实时推送流** 与 **HTTP RESTful API**。
+
+---
+
+## 🔌 主流量化生态无缝接入
+
+无论您使用的是券商实盘交易终端还是自研量化回测框架，均可即插即用：
+
+- **迅投 QMT / xtquant 极简量化接入**
+  - 为 QMT 实盘策略注入外部独立的毫秒级 **Level-2 逐笔成交** 与 **十档盘口** 深度数据。
+  - 突破 QMT 默认基础行情在档位、深度和刷新频率上的瓶颈，赋能日内回转（T+0）、大单监控与盘口微观结构策略。
+- **恒生 PTrade 策略联动**
+  - 作为独立外部行情驱动源，与 PTrade 交易终端协同运行，捕捉毫秒级盘口异动并驱动条件单触发。
+- **vn.py (vnpy) 开源交易框架**
+  - 采用极简 WebSocket JSON 格式，可轻松封装为 vn.py 的自定义行情网关（`DataInterfaceGateway`），直接驱动 CTA 策略引擎与微结构算法。
+- **MQTT / 消息队列总线分发**
+  - 配合轻量 Python 脚本即可一键转推至 MQTT Broker（如 EMQX、Mosquitto），实现多台交易服务器、多账户、多子策略的内网低延迟组播与分发。
 
 ---
 
@@ -16,24 +33,28 @@
 - **⚡ 毫秒级 Level-2 深度行情推流**
   - **逐笔成交（Tick Execution）** 与 **逐笔委托（Order Detail）** 全量推送。
   - **十档买卖盘口（Depth 10 Orderbook）** 毫秒级快照更新。
-  - 自动维护递增序列号（SeqNum），丢包与断线可自检。
+  - 严格维护递增序列号（SeqNum），丢包、断线与时序乱序可精准自检。
 - **🌐 统一标准协议双栈**
-  - **WebSocket 实时流**：采用精简优化的 JSON 数据格式，专为 Python / Go / Node.js 等下游策略系统设计。
-  - **HTTP RESTful 接口**：覆盖基础日线/分时K线、历史明细、板块热点与综合数据查询。
+  - **WebSocket 实时推流**：标准 JSON 数据流，下游 Python / Go / C++ / C# / Node.js 均可秒级解析。
+  - **HTTP RESTful 接口**：涵盖全市场行情快照、历史K线（分时/日/周）、资金流向、板块热点与综合数据。
 - **🛡️ 纯内存运行与零磁盘垃圾 (Zero-Persistence)**
-  - 运行时纯内存缓存，不向磁盘落盘任何无用的网络缓存或临时数据文件，绿色轻量。
-- **💻 三端一致的原生桌面管理控制台**
-  - 提供 Windows (Win32 GDI)、macOS (Cocoa) 与 Linux (GTK) 原生轻量桌面管理界面，日常内存占用低于 20MB。
+  - 采用纯内存环形缓冲区架构，**严禁向本地磁盘写入任何无用的网络缓存文件**，绿色轻量，永不产生磁盘碎片。
+- **💻 三端原生统一管理控制台**
+  - 支持 Windows (Win32 GDI)、macOS (Cocoa) 与 Linux (GTK) 三大平台，拥有 100% 绝对一致的原生管理界面。运行内存常驻仅 ~15MB，附带本地状态监控探针。
 
 ---
 
-## 🏗️ 系统架构
+## 🏗️ 架构拓扑
 
 ```text
-[ 用户量化策略 (Python / C++ / Go) ]
-               │
-               │ HTTP (8080) / WebSocket (/d101, /d201~/d204)
-               ▼
+[ 量化交易终端 / 策略系统 ]
+  ├── 迅投 QMT / xtquant
+  ├── 恒生 PTrade
+  ├── vn.py 开源框架
+  └── 自研 Python/C++ 策略 ────► MQTT Broker (可选)
+             │
+             │ HTTP (8080) / WebSocket (/d101, /d201~/d204)
+             ▼
 ┌────────────────────────────────────────────────────────┐
 │           Data Interface (本地高性能代理中间件)           │
 │  - 纯内存运行 (Zero Disk Pollution)                    │
@@ -47,17 +68,17 @@
 ## 🚀 快速上手 (Quick Start)
 
 ### 1. 下载与运行
-前往 [Releases 页面](https://github.com/baseredge/data-interface/releases) 下载最新绿色发行包（如 `data_interface_win_amd64.zip`）。
+前往 [Releases 页面](https://github.com/baseredge/data-interface/releases) 下载适合您系统的最新绿色免安装发行包（如 `data_interface_win_amd64.zip`）。
 
-解压后直接运行可执行文件：
+解压后直接启动：
 - **Windows**: 双击 `data_interface.exe`
 - **Linux / macOS**: `./data_interface`
 
 服务启动后，默认在本地监听：
-- **业务数据代理端口**：`http://127.0.0.1:8080`
-- **管理控制台与探针**：`http://127.0.0.1:9527`
+- **业务数据端口**：`http://127.0.0.1:8080`
+- **本地管理探针**：`http://127.0.0.1:9527`
 
-### 2. Python 快速订阅示例 (WebSocket Level-2 实时行情)
+### 2. Python 快速订阅示例 (Level-2 实时推流)
 
 ```python
 import asyncio
@@ -68,28 +89,52 @@ async def subscribe_level2():
     # 连接本地行情通道 (以 d204 通道为例)
     uri = "ws://127.0.0.1:8080/d204"
     async with websockets.connect(uri) as ws:
-        # 订阅指定股票代码的逐笔与十档数据
+        # 订阅指定股票标的的逐笔与十档盘口
         sub_msg = {
             "action": "subscribe",
             "symbols": ["000001", "600519"]
         }
         await ws.send(json.dumps(sub_msg))
-        print("订阅成功，等待行情推送...")
+        print("订阅成功，等待高频行情推送...")
 
         while True:
             raw = await ws.recv()
             data = json.loads(raw)
+            # data 包含: 股票代码, 时间戳, 序列号, 逐笔成交/委托明细, 十档买卖盘口
             print(f"收到推送 [{data.get('type')}]: {data}")
 
 if __name__ == "__main__":
     asyncio.run(subscribe_level2())
 ```
 
+### 3. QMT / MQTT 联动模式示例 (行情转推)
+
+```python
+import json
+import asyncio
+import websockets
+# 可选配合 paho-mqtt 转推给局域网其他策略
+# import paho.mqtt.client as mqtt
+
+async def forward_to_quant():
+    uri = "ws://127.0.0.1:8080/d204"
+    async with websockets.connect(uri) as ws:
+        await ws.send(json.dumps({"action": "subscribe", "symbols": ["000001"]}))
+        while True:
+            msg = await ws.recv()
+            tick = json.loads(msg)
+            # 此时可直接喂入 QMT 回调函数，或通过 MQTT 发送给分布式策略集群
+            # mqtt_client.publish(f"stock/l2/{tick['symbol']}", msg)
+
+if __name__ == "__main__":
+    asyncio.run(forward_to_quant())
+```
+
 ---
 
 ## 📚 接口协议目录
 
-完整技术文档与代码示例已分类存放于 [`docs/`](./docs) 与 [`examples/`](./examples) 目录：
+完整技术规范文档与各语言调用示例已开源在 [`docs/`](./docs) 与 [`examples/`](./examples) 目录：
 
 | 模块代码 | 通信协议 | 业务功能说明 | 文档链接 |
 | :--- | :--- | :--- | :--- |
@@ -107,11 +152,17 @@ if __name__ == "__main__":
 
 ## ❓ 常见问题 (FAQ)
 
-### Q: 运行该程序需要配置额外的数据库吗？
-**A**: 不需要。本程序基于 C++ 静态编译，绿色免安装，解压即用，无任何 Python/Node.js 运行时或数据库依赖。
+### Q: 如何与券商的迅投 QMT 或 PTrade 配合使用？
+**A**: 在运行 QMT 或 PTrade 交易客户端的同台机器（或局域网服务器）启动本代理。您的 Python 策略脚本通过 WebSocket 连接本地 `8080` 端口订阅实时行情，同时调用 QMT 的 `xtquant` 或 PTrade 的交易接口执行下单，从而实现“极致行情报送 + 券商极速实盘”的高效配合。
 
-### Q: 如何进行多策略客户端的高并发订阅？
-**A**: 本地代理内核采用无锁异步队列与并发广播机制，单机轻松支撑数十个量化策略进程并发接入，吞吐延时在亚毫秒级。
+### Q: 是否支持多进程、多策略客户端并发订阅？
+**A**: 支持。本地代理内核基于现代 C++ 异步事件驱动模型打造，内置高效的内存分发与组播机制，支持数十个本地量化进程并发接入，吞吐延时在亚毫秒级别。
+
+---
+
+## 🔍 核心检索词与覆盖场景 (Keywords)
+
+`A股行情接口` | `Level-2行情` | `L2数据` | `逐笔成交` | `逐笔委托` | `十档盘口` | `高频量化` | `量化交易` | `迅投QMT` | `xtquant` | `恒生PTrade` | `vn.py` | `MQTT行情分发` | `WebSocket行情推送` | `股票数据API` | `Python量化接口` | `A-share Level2 Gateway`
 
 ---
 
