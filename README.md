@@ -1,4 +1,4 @@
-# Data Interface (量化高频全域行情网关与深度复盘系统)
+# 达塔接口 · Data Interface (量化高频全域行情网关与深度复盘系统)
 
 > 🌐 **官方门户与在线服务**：[https://dat.gt.tc](https://dat.gt.tc) ｜ ⚡ **实测常驻运行内存仅 ~5MB** ｜ 🎯 **支持 QMT / PTrade / vn.py / MQTT 生态**
 
@@ -8,7 +8,7 @@
 [![Memory Footprint](https://img.shields.io/badge/Memory%20Footprint-~5MB%20Resident-success?style=for-the-badge)]()
 [![Asset Coverage](https://img.shields.io/badge/Asset%20Coverage-Global%20Multi--Asset-blueviolet?style=for-the-badge)]()
 
-`Data Interface` 是专为量化对冲基金、日内高频团队、策略研发人员打造的本地行情中继与微结构复盘引擎。基于现代 **C++23** 全异步零拷贝架构，抛弃了市面传统数据商繁琐的权限割裂与单点订阅限制。
+**达塔接口（Data Interface）** 是专为量化对冲基金、日内高频团队、策略研发人员打造的本地行情中继与微结构复盘引擎。基于现代 **C++23** 全异步零拷贝架构，抛弃了市面传统数据商繁琐的权限割裂与单点订阅限制。
 
 整套系统涵盖十套高度互补的专精引擎（**D1 ~ D204**），以**仅 ~5MB 的极低系统常驻开销**，提供从“全球全品种资产一键全推”到“3秒级上帝视角复盘”，再到“指定价位排单穿透”与“主力资金连续序列”的全链条量化军火库。
 
@@ -255,7 +255,7 @@ print(f"微结构复盘加载完成，共获取 {len(segments)} 个高精分段�
 
 ## 🔍 核心检索词与覆盖场景 (Keywords)
 
-`量化复盘` | `3秒级上帝视角` | `一键全推` | `全球多资产` | `主力资金流` | `指定价位排单` | `千档盘口` | `逐笔成交` | `逐笔委托` | `涨停连板梯队` | `早盘集合竞价` | `筹码分布` | `盘口抢筹` | `迅投QMT` | `xtquant` | `恒生PTrade` | `vn.py` | `MQTT行情推流` | `高频量化交易` | `Python数据网关`
+`达塔接口` | `达塔` | `Data Interface` | `量化复盘` | `3秒级上帝视角` | `一键全推` | `全球多资产` | `主力资金流` | `指定价位排单` | `千档盘口` | `逐笔成交` | `逐笔委托` | `涨停连板梯队` | `早盘集合竞价` | `筹码分布` | `盘口抢筹` | `迅投QMT` | `xtquant` | `恒生PTrade` | `vn.py` | `MQTT行情推流` | `高频量化交易` | `Python数据网关`
 
 ---
 
