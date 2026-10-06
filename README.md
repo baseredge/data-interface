@@ -1,17 +1,25 @@
 # Data Interface (量化高频全域行情网关与深度复盘系统)
 
-> 🎯 **面向 QMT、PTrade、vn.py、Python 量化策略与分布式推流的高性能轻量化本地代理中间件**  
-> ⚡ **现代 C++23 极致内核，实测常驻运行内存仅 ~5MB，亚毫秒级低延迟吞吐**
+> 🌐 **官方门户与在线服务**：[https://dat.gt.tc](https://dat.gt.tc) ｜ ⚡ **实测常驻运行内存仅 ~5MB** ｜ 🎯 **支持 QMT / PTrade / vn.py / MQTT 生态**
 
-[![Release](https://img.shields.io/github/v/release/baseredge/data-interface?color=blue&label=Latest%20Release)](https://github.com/baseredge/data-interface/releases)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-brightgreen)]()
-[![Memory Footprint](https://img.shields.io/badge/Memory%20Footprint-~5MB%20Resident-success)]()
-[![Ecosystem](https://img.shields.io/badge/Ecosystem-QMT%20%7C%20PTrade%20%7C%20vn.py%20%7C%20MQTT-red)]()
-[![Asset Coverage](https://img.shields.io/badge/Asset%20Coverage-Global%20Multi--Asset-blueviolet)]()
+[![Official Website](https://img.shields.io/badge/Official%20Website-dat.gt.tc-blue?style=for-the-badge&logo=googlechrome&logoColor=white)](https://dat.gt.tc)
+[![Release](https://img.shields.io/github/v/release/baseredge/data-interface?color=blue&label=Latest%20Release&style=for-the-badge)](https://github.com/baseredge/data-interface/releases)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-brightgreen?style=for-the-badge)]()
+[![Memory Footprint](https://img.shields.io/badge/Memory%20Footprint-~5MB%20Resident-success?style=for-the-badge)]()
+[![Asset Coverage](https://img.shields.io/badge/Asset%20Coverage-Global%20Multi--Asset-blueviolet?style=for-the-badge)]()
 
 `Data Interface` 是专为量化对冲基金、日内高频团队、策略研发人员打造的本地行情中继与微结构复盘引擎。基于现代 **C++23** 全异步零拷贝架构，抛弃了市面传统数据商繁琐的权限割裂与单点订阅限制。
 
 整套系统涵盖十套高度互补的专精引擎（**D1 ~ D204**），以**仅 ~5MB 的极低系统常驻开销**，提供从“全球全品种资产一键全推”到“3秒级上帝视角复盘”，再到“指定价位排单穿透”与“主力资金连续序列”的全链条量化军火库。
+
+---
+
+## 🌐 官方平台与在线服务 (Official Portal)
+
+- 🏠 **官方网站与在线控制台**：👉 [**https://dat.gt.tc**](https://dat.gt.tc)
+- 📦 **客户端直链下载**：可在官网直接获取各平台最新稳定版绿色客户端（Windows / macOS / Linux）。
+- 🛠️ **交互式 API 在线测试器**：官网提供免安装的 Web 端接口实时测试工具，支持可视化调试全套 HTTP 与 WebSocket 接口。
+- 🔑 **账户与通道管理**：在官网即可一站式完成终端激活、通用积分查询与通道权限管理。
 
 ---
 
@@ -157,7 +165,7 @@
 ## 🚀 快速上手 (Quick Start)
 
 ### 1. 下载与运行
-前往 [Releases 页面](https://github.com/baseredge/data-interface/releases) 下载适合您操作系统的绿色免安装包（如 `data_interface_win_amd64.zip`）。
+可直接在 [官方网站 (dat.gt.tc)](https://dat.gt.tc) 或 [GitHub Releases 页面](https://github.com/baseredge/data-interface/releases) 下载适合您操作系统的绿色免安装包（如 `data_interface_win_amd64.zip`）。
 
 解压后直接启动：
 - **Windows**: 双击 `data_interface.exe`
@@ -233,6 +241,9 @@ print(f"微结构复盘加载完成，共获取 {len(segments)} 个高精分段�
 ---
 
 ## ❓ 常见问题 (FAQ)
+
+### Q: 官方网站 (dat.gt.tc) 提供哪些服务？
+**A**: [https://dat.gt.tc](https://dat.gt.tc) 是本项目的官方服务门户。网站提供免安装的网页端 API 可视化调试控制台、最新多平台客户端高速下载、完整接口文档与示例合集包，以及账号与通道权限管理。
 
 ### Q: 为什么实测内存占用仅约 5MB？对服务器性能有何要求？
 **A**: 本项目完全基于现代 C++23 编写，采用紧凑的数据结构、高效的无锁队列与就地内存解析，抛弃了一切冗余框架与重型解释器依赖。即便在最低配的 1核1G 云服务器上也能长期满负载稳定运行，CPU 与内存开销几乎可以忽略不计。
