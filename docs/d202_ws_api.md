@@ -329,11 +329,11 @@ python apps/data_interface/examples/legacy-python/d202_snapshot_auction.py --auc
   "code":"SZ300773", "activeBuy":5000, "passiveBuy":3000,
   "activeSell":2000, "passiveSell":1000,
   "rows":[{"seq":100,"t":145945,"amt":500,"v":100,
-            "avgP":2650,"d":66,"act":1}]
+            "avgP":2650,"d":66,"act":128}]
 }
 ```
 
-总额和 `rows[].amt` 单位为万元；`v` 是手；`avgP` 是分；`act=1` 主动、`act=0` 被动；方向 `d` 使用 66/83。
+总额和 `rows[].amt` 单位为万元；`v` 是手；`avgP` 是分；方向 `d` 使用 66 (买) / 83 (卖)；`act` 为成交驱动标志：`128` 外盘（买方驱动）、`0` 内盘（卖方驱动）。结合 `d` 与 `act` 可精确判定大单的主动/被动性质。
 
 ### 6.6 `queue`
 
@@ -418,7 +418,17 @@ python apps/data_interface/examples/legacy-python/d202_snapshot_auction.py --auc
 | `rows[].v` | 该条大单数量 | 手 |
 | `rows[].avgP` | 该条平均价格 | 分 |
 | `rows[].d` | 买卖方向 | 66 买，83 卖 |
-| `rows[].act` | 主动性 | 1 主动，0 被动 |
+| `rows[].act` | 成交驱动标志 | 128 外盘（买方驱动），0 内盘（卖方驱动） |
+
+> **大单性质判定说明：**
+> 
+> 单笔大单的具体属性由 `d`（方向）与 `act`（驱动标志）共同确定：
+> - `d=66` 且 `act=128`：**主动买入 (主买)** —— 外盘大单，对应汇总里的 `activeBuy`；
+> - `d=66` 且 `act=0`：**被动买入 (被买)** —— 内盘被动成交，对应汇总里的 `passiveBuy`；
+> - `d=83` 且 `act=0`：**主动卖出 (主卖)** —— 内盘大单，对应汇总里的 `activeSell`；
+> - `d=83` 且 `act=128`：**被动卖出 (被卖)** —— 外盘被动成交，对应汇总里的 `passiveSell`。
+> 
+> 实测全市场该标志位仅有 `128` 与 `0` 两种取值，不存在其他复合状态位。
 
 ### `queue` 字段
 

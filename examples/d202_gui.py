@@ -1105,7 +1105,15 @@ class D202Gui(D201Gui):
                 [format_time(row.get("t")), format_price(row.get("p")), f"{volume}({format_wan(amount)})", direction],
                 [MUTED, direction_color, direction_color, direction_color],
             )
-        active = "主动" if as_int(row.get("act")) else "被动"
+        direction_val = as_int(row.get("d"))
+        act_val = as_int(row.get("act"))
+        # act: 128=外盘(买方驱动), 0=内盘(卖方驱动)
+        if direction_val == 66:
+            active = "主买" if act_val == 128 else "被买"
+            is_active = (act_val == 128)
+        else:
+            active = "主卖" if act_val == 0 else "被卖"
+            is_active = (act_val == 0)
         return (
             [
                 format_time(row.get("t")),
@@ -1115,7 +1123,7 @@ class D202Gui(D201Gui):
                 direction,
                 active,
             ],
-            [MUTED, TEXT, GOLD if as_int(row.get("v")) >= 100 else TEXT, GOLD, direction_color, GOLD if as_int(row.get("act")) else MUTED],
+            [MUTED, TEXT, GOLD if as_int(row.get("v")) >= 100 else TEXT, GOLD, direction_color, GOLD if is_active else MUTED],
         )
 
     @staticmethod
