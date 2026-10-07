@@ -172,6 +172,41 @@ GET http://127.0.0.1:8080/d2/flow_day?code=BK0475&lmt=10
 - `large_net_inflow`：大单净流入金额（元）。
 - `super_large_net_inflow`：超大单净流入金额（元）。
 
+**`/d2/flow_v2_minute` 响应示例**：
+```json
+{
+  "rc": 0,
+  "data": {
+    "klines": [
+      {
+        "time": "09:31",
+        "main_net_inflow": 1250000.0,
+        "super_large_net_inflow": 800000.0,
+        "large_net_inflow": 450000.0,
+        "middle_net_inflow": -200000.0,
+        "small_net_inflow": -1050000.0
+      },
+      {
+        "time": "09:32",
+        "main_net_inflow": 1820000.0,
+        "super_large_net_inflow": 1100000.0,
+        "large_net_inflow": 720000.0,
+        "middle_net_inflow": -350000.0,
+        "small_net_inflow": -1470000.0
+      }
+    ]
+  }
+}
+```
+
+> [!TIP]
+> **关于 `/d2/flow_v2_minute` 业务日与时间字段的常见疑问 (FAQ)**：
+> 1. **为什么只有 `HH:mm`（如 `"09:31"`）而没有日期？**
+>    因为本接口设计为单日 240 分钟分时连续走势曲线（全天横轴固定为 09:30~15:00），所有 240 个点均属于同一个交易日，无需在每根分时记录中冗余附加日期。
+> 2. **如何确定该曲线属于哪个交易日？**
+>    - 盘中实时调用时，直接绑定当前交易日；
+>    - 盘后或非交易日核验归档时，配套调用 `GET /d2/flow_v2_summary?code=...` 或 `GET /d2/flow_v2_history?code=...`，其返回结构中包含确切的权威业务日期 `date` 字段（如 `"2026-09-30"`）。
+
 ## 4. App 数据中心页面别名
 
 同一页面下的多个数据表通过 `type` 选择。下面这些接口使用统一的分页、排序、
