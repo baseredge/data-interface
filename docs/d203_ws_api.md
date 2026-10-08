@@ -241,9 +241,9 @@ ws://127.0.0.1:<ProxyPort>/d203
 
 | 字段名 | 类型 | 说明 |
 | :--- | :--- | :--- |
-| `time` | int | 撮合成交时间（`HHMMSSmmm`） |
-| `seq` | int | 逐笔全局自增序号 |
-| `trade_no` | int | 成交流水号 |
+| `time` | int | 撮合成交时间（原生整型 `HHMMSS` 秒级，如 `93005` 代表 09:30:05） |
+| `seq` | int | 分包/批次序号（批次内排序索引） |
+| `trade_no` | int | **成交流水号（业务唯一主键，全日全局单调自增）** |
 | `price` | int | 撮合成交价格（原生整数） |
 | `volume` | int | 成交数量（股） |
 | `amount` | int | 成交金额（元，部分品种可能省略由价格与数量推算） |
@@ -293,31 +293,38 @@ ws://127.0.0.1:<ProxyPort>/d203
 
 ---
 
-### 4.3 委托统计 (`orderstat`)
+### 4.3 委买委卖挂单统计 (`orderstat`)
 
-提供全日累计的宏观委买、委卖、订单数以及**买卖累计撤单笔数**统计，适合构建资金动能与盘面冷热指标。
+提供**当前盘口在册排队挂单**的加权均价、总量与总金额统计，适合构建盘口挂单冷热与微观动能指标。
+
+> 💡 **统计口径说明**：
+> - **`orderstat`** 反映的是**当前瞬时在册挂单快照**（委买/委卖加权均价、总量与总金额）。
+> - **全日累计委托与撤单笔数**（`buy_cancel_count`、`sell_cancel_count`）请通过订阅 **`entrust`（逐笔委托）** 报文内嵌的 `statistics` 对象获取。
 
 ```json
 {
   "action": "push",
   "type": "orderstat",
   "symbol": "SH600519",
-  "statistics": {
-    "buy_volume": 12890500,
-    "sell_volume": 15402100,
-    "buy_order_count": 8920,
-    "sell_order_count": 9410,
-    "buy_cancel_count": 1340,
-    "sell_cancel_count": 1120
-  }
+  "code": "600519",
+  "market_id": 1,
+  "buy_avg_price": 1649800,
+  "buy_volume": 12890500,
+  "buy_order_count": 8920,
+  "buy_amount": 21266746900,
+  "sell_avg_price": 1650300,
+  "sell_volume": 15402100,
+  "sell_order_count": 9410,
+  "sell_amount": 25418085630
 }
 ```
 
 | 字段名 | 类型 | 说明 |
 | :--- | :--- | :--- |
-| `buy_volume` / `sell_volume` | int | 累计委买总股数 / 累计委卖总股数 |
-| `buy_order_count` / `sell_order_count` | int | 累计委买总笔数 / 累计委卖总笔数 |
-| `buy_cancel_count` / `sell_cancel_count` | int | **累计买方撤单笔数 / 累计卖方撤单笔数**（计算市场撤单倾向的核心参数） |
+| `buy_avg_price` / `sell_avg_price` | int | 委买加权均价 / 委卖加权均价（原生整数价码） |
+| `buy_volume` / `sell_volume` | int | 当前在册委买总股数 / 委卖总股数 |
+| `buy_order_count` / `sell_order_count` | int | 当前在册委买总笔数 / 委卖总笔数 |
+| `buy_amount` / `sell_amount` | int | 当前在册委买总金额 / 委卖总金额 |
 
 ---
 
