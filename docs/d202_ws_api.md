@@ -91,21 +91,15 @@ finally:
 
 看到股票代码、最新价和买盘数据，说明连接和订阅成功。代码必须是 8 位大写格式，例如 `SZ300773`、`SH600519`。
 
-### 1.3 运行全市场快照示例
+### 1.3 运行 Python 客户端示例
 
-仓库示例是 [`d202_snapshot_auction.py`](../../examples/legacy-python/d202_snapshot_auction.py)。先用 10 只股票立即测试：
-
-```bash
-python apps/data_interface/examples/legacy-python/d202_snapshot_auction.py --limit 10 --run-now
-```
-
-确认测试成功后，在竞价触发时间前启动正式任务：
+仓库提供了图形化测试示例 [`d202_gui.py`](../../examples/legacy-python/d202_gui.py)：
 
 ```bash
-python apps/data_interface/examples/legacy-python/d202_snapshot_auction.py --auction-only --output auction_092507.jsonl
+python apps/data_interface/examples/legacy-python/d202_gui.py
 ```
 
-脚本会提前建立连接，在中国标准时间 09:25:07 发送请求；每只股票完成后写一行 JSONL，并生成同名 `.summary.json` 汇总文件。`--run-now` 只用于联调。
+连接后可实时测试千档、十档、逐笔委托、逐笔成交的高频推送。
 
 ## 2. WebSocket 基础规则
 
@@ -135,9 +129,9 @@ python apps/data_interface/examples/legacy-python/d202_snapshot_auction.py --auc
 
 | 字段 | 类型 | 必填 | 说明 |
 |---|---:|:---:|---|
-| `type` | string | 是 | `thousand`、`depth10`、`entrust`、`trade`、`bigorder`、`queue` 或 `snapshot` |
-| `code` | string | 普通订阅必填 | 8 位市场+代码；`snapshot` 可用 `codes` 或自动股票列表 |
-| `enable` | int | 是 | `1` 开始订阅/执行，`0` 退订或取消快照 |
+| `type` | string | 是 | `thousand`、`depth10`、`entrust`、`trade`、`bigorder` 或 `queue` |
+| `code` | string | 是 | 8 位市场+代码（如 `SZ300773`、`SH600519`） |
+| `enable` | int | 是 | `1` 开始订阅，`0` 退订 |
 | `userParam` | int | 否 | `0~4294967295`，响应中透传，用于区分不同用途 |
 
 > **重要：`count` 请使用默认值 50。** 它表示一次单批分页请求取多少条，不是最终想保存的总条数。新手请直接省略 `count`，或保持 `count=50`；不要填写 `count=5000`。D202 示例客户端允许的范围是 1~500，超过范围会直接报参数错误。要获取更多数据，由服务自动分页，客户端持续读取并合并 `rows`，不要把 `count` 改成大数。
@@ -449,152 +443,17 @@ python apps/data_interface/examples/legacy-python/d202_snapshot_auction.py --auc
 
 `volumes` 的总和不一定等于 `totalCount`，因为服务可能只返回部分排队明细；判断“总量”看 `totalCount`，判断“本次返回了几笔”看 `batchCount` 或实际数组长度。
 
-## 7. 全市场或指定股票快照
+> [!TIP]
+> **历史与竞价数据获取**：原 D202 实验性全市场快照功能已由 **D5 接口**（`/d5/l2plus/*`）全面取代。D5 原生提供盘后全量 L2 历史数据与当日早盘竞价数据的离线下载与解密解析，性能更高且无需客户端长连接分页拼包。
 
-### 7.1 请求
-
-```json
-[{"type":"snapshot","enable":1,"levels":10,"count":50,
-  "workers":8,"limit":10,"cutoffTime":92506}]
-```
-
-首次测试请保留 `limit=10`。确认成功后改为 `limit=0` 获取自动股票列表中的全部股票；也可以指定 `codes`：
-
-```json
-[{"type":"snapshot","enable":1,"levels":10,"count":50,
-  "codes":["SZ300773","SH600519"]}]
-```
-
-快照参数：
-
-| 参数 | 默认 | 说明 |
-|---|---:|---|
-| `levels` | 10 | 千档深度返回档位数 |
-| `count` | **50** | 委托/成交单页数量，不是最终总条数。**请保持默认值，不要填写 5000** |
-| `workers` | 8 | 股票级并发数 |
-| `limit` | 0 | 自动列表数量；0 全部，测试可设 10 |
-| `codes` | 无 | 股票代码数组或逗号分隔字符串；指定后忽略 `limit` |
-| `universe` | `cn_hsj_stock` | 服务端生成的业务股票池；当前支持 `cn_hs_stock`、`cn_hsj_stock` |
-| `batchSize` | 1 | 单次并发请求包含的标的数，初次使用建议保持 1 |
-| `filter` | 0 | 委托金额筛选 |
-| `startSeq` | 0 | 0 从最新页开始，并自动回溯到当天最早记录 |
-| `cutoffTime` | 0 | `HHmmss` 截止时间；例如 `92506`，0 表示关闭 |
-
-快照请求字段的组合规则：
-
-- `codes` 和 `universe` 二选一。填写 `codes` 后，`limit` 会被忽略；未填写二者时默认使用 `cn_hsj_stock`；
-- `cn_hs_stock` 表示沪深 A 股，`cn_hsj_stock` 表示沪深京 A 股；数量由服务端动态获取；
-- `limit=0` 表示所选股票池中的全部股票，首次不要直接使用，先用 `limit=10`；
-- `count=50` 只是每次向数据服务请求 50 条，不代表最终每只股票只有 50 条；服务会自动翻页；不要通过 `count=5000` 代替分页；
-- `workers` 越大并不一定越快，网络不稳定时可以改为 2 或 4；
-- `levels` 控制深度档位，10 就是十档；
-- `cutoffTime` 一旦大于 0，就启用按时间顺序回溯，适合竞价或指定时间点快照。
-
-服务会分页获取每只股票的委托和成交，按序号去重并合并到 `rows`。每完成一只股票就发送一条 `snapshot`，全部完成后发送 `snapshot_done`，所以客户端不需要等待一个巨型 JSON。
-
-### 7.2 `cutoffTime` 的含义
-
-设置 `cutoffTime=92506` 后，服务从最早页开始顺序读取；当某一页有记录时间大于等于 09:25:06 时，保留整页并停止该股票的回溯。若在 09:25:07 触发，可用于保存竞价阶段数据。启用该参数时，`startSeq` 不参与起始定位。
-
-### 7.3 快照响应
-
-开始消息：
-
-```json
-{"list":[{"type":"snapshot_start",
-  "data":{"total":5200,"sourceTotal":5200,"skippedInvalid":0,
-  "skippedNoPrice":0,"skipped9xx":0,"limit":0,"levels":10,
-  "count":50,"startSeq":0,"cutoffTime":92506,"workers":8,"batchSize":1}}]}
-```
-
-单只股票消息：
-
-```json
-{"list":[{"type":"snapshot",
-  "data":{"code":"SZ300773","thousand":{},"entrust":{"rows":[]},"trade":{"rows":[]}},
-  "progress":{"completed":1,"total":5200}}]}
-```
-
-结束消息：
-
-```json
-{"list":[{"type":"snapshot_done",
-  "data":{"total":5200,"completed":5198,"failed":2,"cancelled":false}}]}
-```
-
-取消正在执行的快照：
-
-```json
-[{"type":"snapshot","enable":0}]
-```
-
-快照单只股票 `data` 字段说明：
-
-| 字段 | 含义 |
-|---|---|
-| `code` | 本条结果对应的股票代码 |
-| `thousand` | 该股票的深度快照；字段解释见上文 `thousand` |
-| `entrust` | 该股票合并后的逐笔委托；`rows` 可能远多于 `count` |
-| `trade` | 该股票合并后的逐笔成交；`rows` 可能远多于 `count` |
-| `errors` | 该股票处理失败时的错误列表；为空表示该股票没有记录到错误 |
-
-进度字段说明：
-
-| 字段 | 含义 |
-|---|---|
-| `progress.completed` | 已完成的股票数 |
-| `progress.total` | 本次任务计划处理的股票数 |
-| 顶层 `ok` | 示例脚本写入的结果标记，不是服务端所有消息都自带 |
-| 顶层 `errors` | 示例脚本整理出的错误列表 |
-
-不要用“收到第一条 `snapshot`”判断任务完成，必须等 `snapshot_done`。只有 `failed=0` 且 `cancelled=false`，才可以把整批任务标记为完整成功。
-
-### 7.4 直接使用 Python 示例
-
-测试 10 只：
-
-```bash
-python apps/data_interface/examples/legacy-python/d202_snapshot_auction.py --limit 10 --run-now
-```
-
-竞价快照：
-
-```bash
-python apps/data_interface/examples/legacy-python/d202_snapshot_auction.py --cutoff-time 92506 --output auction_092507.jsonl
-```
-
-盘后下载当天完整委托和成交时，不要加 `--auction-only` 或 `--cutoff-time`，让 `startSeq=0` 自动回溯。全市场全天数据量可能达到数 GB，执行前至少预留 30 GB 磁盘空间；实际容量会随交易活跃度和数据量变化。
-
-## 8. JSONL 输出怎么读取
-
-示例每行是一个独立 JSON 对象，不要用 `json.load()` 一次读取整个文件：
-
-```python
-import json
-
-with open("auction_092507.jsonl", encoding="utf-8") as f:
-    for line in f:
-        record = json.loads(line)
-        if not record.get("ok", True):
-            print("失败：", record.get("errors"))
-            continue
-        data = record.get("data", {})
-        print(data.get("code"), data.get("thousand", {}).get("price"))
-```
-
-一行通常对应一只股票，`data["entrust"]["rows"]` 和 `data["trade"]["rows"]` 是合并后的逐笔数组。`.summary.json` 保存运行时间、命令、完成数量和错误信息。
-
-## 9. 稳定运行和错误处理
+## 7. 稳定运行和错误处理
 
 - 所有消息都先检查 JSON 是否有效，再检查 `list` 是否为数组。
-- 遍历 `list` 的每一项；`info`、`error`、`snapshot_start`、`snapshot_done` 都不能按普通行情处理。
 - 实时增量数据用 `seq` 去重，并检查序号是否连续。
 - 连接断开后重新建立连接，并重新发送所有订阅。
-- 快照任务不要只等超时；必须一直读取到 `snapshot_done`。
-- 收到 `snapshot_done.failed > 0` 或股票数据中的 `errors` 时，将任务标记为“部分失败”，不要误报为完整成功。
 - 全市场任务应使用 JSONL 流式落盘，避免把所有股票放在内存中。
 
-## 10. 单位换算速查
+## 8. 单位换算速查
 
 | 字段 | 原始单位 | 换算 |
 |---|---|---|
@@ -603,13 +462,11 @@ with open("auction_092507.jsonl", encoding="utf-8") as f:
 | `v`、`volume`、`totalBuyVol`、`totalSellVol` | 手 | 乘以 100 得股 |
 | `l2Time` | 服务内部时间值 | 原样保存，不当作价格或金额 |
 
-## 11. 常见问题
+## 9. 常见问题
 
 | 现象 | 处理方法 |
 |---|---|
 | 无法连接 | 检查服务程序、登录状态、8080 端口和地址 |
 | 只有 `info` 没有行情 | 检查代码格式、权限、交易时段和数据类型参数 |
 | `data` 不存在 | 当前消息可能是 `info` 或 `error`，先判断 `type` |
-| 快照一直没有结束 | 继续读取直到 `snapshot_done`；高活跃股票分页较多时会更久 |
-| 快照文件很大 | 先用 `limit=10`；全天全市场任务需准备足够磁盘 |
 | 价格不对 | D202 普通价格字段统一按分处理，除以 100 得元 |

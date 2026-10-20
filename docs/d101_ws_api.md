@@ -57,6 +57,17 @@ K 线不属于 D101。需要 K 线时使用 D4 HTTP 接口：`GET /d4/l1/kline`�
 
 `market_event` 已由当前 D101 服务端开放。它不需要 `codes` 股票数组：返回的是服务端发现的异动事件，客户端通过返回行中的 `code` 判断涉及的股票。
 
+### 2.1 架构设计契约与高危反模式
+
+> [!CAUTION]
+> #### 严禁用定时任务（如 cron / shell 脚本）短轮询拉取快照
+> - **高危反模式（禁止）**：严禁每隔几秒或十几秒启动一个独立脚本进程、反复建立 WebSocket 连接去拉取全市场数据。全市场 5000+ 标的首帧数据包在盘中交投高峰期数据量大，冷启动建立连接、服务端准备数据和网络传输需要合理耗时；高频短连接拉取全量首帧会导致：
+>   1. **首帧耗时波动触发客户端超时**：在盘中高峰期，拉取全量首帧可能需要 3～6 秒，若客户端设置几秒的严苛短超时，极易在数据尚未接收完毕时被自身强杀；
+>   2. **连接状态雪崩恶化**：频繁超时强断会导致未完成的会话异常堆积，破坏连接状态，导致后续重试连接时耗时持续恶化；
+>   3. **高频风控限流拦截**：高频频繁建连极易触发服务端的高频风控与防刷机制（Rate Limit），导致通道被限速或拒绝服务。
+> - **标准架构（长连接守护进程 + 本地内存 Dump）**：
+>   客户端必须在开盘前建立**单一持久的 WebSocket 长连接**，并由常驻后台进程（Daemon）维护本地内存快照字典（收到增量消息时用 `dict.update()` 更新）。若业务需要定时（如每 15 秒）存储快照，应由常驻进程内部的定时线程直接从**本地内存字典**读取并落库，耗时低于 1 毫秒且零网络风险（详见第 12.2 节）。
+
 ---
 
 ## 3. 开始前的准备
@@ -1536,6 +1547,108 @@ latest[code] = row
 latest.setdefault(code, {}).update(row)
 ```
 
+### 12.2 生产最佳实践：定时快照落库（Daemon + 本地内存定时 Dump）
+
+如果业务需求是**“每 15 秒（或每 1 分钟）记录一次全市场快照和资金流到数据库”**，请**绝对不要**用外部 shell 脚本或 cron 周期性启动新进程去重复连接 WebSocket。
+
+正确且稳定的方案是使用 **常驻后台守护进程（Daemon）+ 后台定时线程**：
+1. 启动常驻 WebSocket 连接，订阅全市场；
+2. 持续接收推流，并在本地内存字典中通过 `update(row)` 维护全市场的最新状态；
+3. 在后台启动一个独立定时线程，每 15 秒直接从**本地内存字典**快速读取快照并写入数据库（耗时仅需数毫秒，与外部网络完全隔离）。
+
+完整生产参考实现：
+
+```python
+import copy
+import json
+import logging
+import threading
+import time
+import websocket
+
+URL = "ws://127.0.0.1:8080/d101"
+FIELDS = [
+    "code", "name", "price", "high", "low", "open_price", "pre_close",
+    "volume", "amount", "limit_up_price", "limit_down_price",
+    "net_inflow", "super_big_order_net_inflow",
+]
+
+
+class MarketDaemon:
+    def __init__(self, url: str):
+        self.url = url
+        self.latest = {}       # 本地内存全市场字典: code -> row
+        self.lock = threading.Lock()
+        self.running = True
+
+    def start_dump_timer(self, interval_sec: int = 15):
+        """独立后台线程：每隔指定秒数，从本地内存直接 Dump 快照落库。"""
+        def dump_loop():
+            while self.running:
+                time.sleep(interval_sec)
+                # 加锁浅拷贝当前内存快照，耗时通常小于 1ms，完全无网络开销
+                with self.lock:
+                    snapshot_copy = {k: v.copy() for k, v in self.latest.items()}
+                if not snapshot_copy:
+                    continue
+                self.save_to_database(snapshot_copy)
+
+        t = threading.Thread(target=dump_loop, daemon=True)
+        t.start()
+
+    def save_to_database(self, snapshot: dict):
+        """批量写入数据库表 (如 quote_snapshot, capital_flow_snapshot)。"""
+        # 注意：此处从本地内存字典直接读取，完全免疫网络波动和传输延迟
+        count = len(snapshot)
+        logging.info("定时落库成功：已写入全市场快照 %d 条", count)
+
+    def run_forever(self):
+        self.start_dump_timer(15)  # 启动每 15 秒定时落库线程
+        delay = 1.0
+        while self.running:
+            try:
+                # 长连接保持，timeout 建议设置为 30 秒以应对非交易时段较长消息间隔
+                ws = websocket.create_connection(self.url, timeout=30)
+                cmd = {
+                    "type": "snapshot",
+                    "enable": 1,
+                    "universe": "all",  # 订阅全市场
+                    "fields": FIELDS,
+                }
+                ws.send(json.dumps(cmd, ensure_ascii=False))
+                logging.info("D101 WebSocket 已连接并发送订阅")
+                delay = 1.0
+
+                while self.running:
+                    msg = json.loads(ws.recv())
+                    for item in msg.get("list", []):
+                        if item.get("type") == "snapshot":
+                            with self.lock:
+                                for row in item.get("data", []):
+                                    code = row.get("code")
+                                    if code:
+                                        self.latest.setdefault(code, {}).update(row)
+            except Exception as e:
+                logging.warning("连接异常断开: %s，将在 %.1f 秒后平滑重连", e, delay)
+                time.sleep(delay)
+                delay = min(delay * 2, 30.0)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    daemon = MarketDaemon(URL)
+    try:
+        daemon.run_forever()
+    except KeyboardInterrupt:
+        daemon.running = False
+        logging.info("守护进程已停止")
+```
+
+#### 为什么必须采用这种架构？
+* **0 延迟与 0 超时风险**：定时落库只访问本地内存，不需要经过网络握手，写入数据库的时间完全可控，彻底杜绝 5 秒超时强杀；
+* **极速增量推流**：仅首帧需要传输全量数据，盘中仅接收增量变化（Delta Update），大幅削减带宽消耗与 JSON 反序列化 CPU 开销；
+* **保障服务稳定高可用**：消除了高频建连与超时强杀引发的连接异常累积及服务端限流拦截风险。
+
 ---
 
 ## 13. JavaScript 浏览器示例
@@ -1676,6 +1789,8 @@ latest.clear()
 | `data` 少于股票数 | 本次只返回部分股票 | 按 `code` 合并，不按数组下标对齐 |
 | 某个值为 `null` | 无数据或原始特殊值 | 按空值处理，不转成 0 |
 | 数值明显错位 | 请求了目录之外的字段或字段类型不匹配 | 只使用正式字段；删除非正式字段 |
+| 全市场首帧频繁超时（如超过 5 秒） | 用短脚本短轮询全市场，或盘中交投高峰首帧组包耗时增加 | 严禁用外部脚本短轮询，改用常驻后台守护进程（Daemon）；全市场首帧冷启动超时建议设为 15～30 秒 |
+| 盘中拉取越来越慢直至全部中断 | 频繁超时强杀导致内部会话异常累积、连接恶化，或触发服务端高频限流 | 立即停止高频外部重连，切换为单连接持久订阅并实施指数平滑退避（详见第 2.1 节与第 12.2 节） |
 
 ---
 
@@ -1884,7 +1999,7 @@ print("D101 fields:", FIELDS)
 
 ### 16.4 完整详情字段目录（全量 200 个语义名称）
 
-本目录包含 `type: "detail"` 可选的全部 200 个语义名称（195 个独立字段 + 5 个请求字段组）。`code` 始终返回，不计入字段名额。相同含义且相同口径的字段沿用快照名称。所有整数字段保持协议解码后的整数，不做价格、数量或比例换算；`decimal_num`、`bond_price_decimals` 和 `volume_unit` 仅作为独立字段返回。紧凑整数解码保留。`iopv4` 也返回原整数。
+本目录包含 `type: "detail"` 可选的全部 200 个语义名称（195 个独立字段 + 5 个请求字段组）。`code` 始终返回，不计入字段名额。相同含义且相同口径的字段沿用快照名称。所有整数字段均为原始整数，不做价格、数量或比例换算；`decimal_num`、`bond_price_decimals` 和 `volume_unit` 仅作为独立字段返回。`iopv4` 也返回原整数。
 
 | 语义名称 | JSON 类型 | 说明 |
 |---|---|---|

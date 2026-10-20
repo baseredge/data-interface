@@ -263,7 +263,7 @@ D204 提供两种截然不同的工作模式，开发者可按策略需求自由
 
 > ⏱️ **快照时间口径说明**：
 > - 内层 `recent_trades[].time`：代表**交易所真实撮合事件时刻**，连续竞价与收盘集合竞价在 15:00:00 结束，因此最后一笔成交时间定格在 15:00:00。
-> - 外层 `datetime`：代表**行情源中心网关的快照生成/广播时间戳**。盘后（15:00~17:00 清算结束前），上游行情节点在盘后固定价格交易与清算对账期间仍会定期广播最新的静态状态帧，因此盘后查询时外层 `datetime` 显示为网关刷新机器时间（如 16:27），内层成交数据依然保持 15:00 的最终收盘成交。
+> - 外层 `datetime`：代表**行情网关的快照刷新时间戳**。盘后（15:00~17:00 清算结束前），交易所行情网关在盘后固定价格交易与清算对账期间仍会定期广播最新的静态状态帧，因此盘后查询时外层 `datetime` 显示为网关刷新时间（如 16:27），内层成交数据依然保持 15:00 的最终收盘成交。
 
 ##### 7. ⭐️ 买一卖一排队委托队列 (`order_queue`)
 提供最前沿盘口的微观排队分布：
@@ -273,6 +273,63 @@ D204 提供两种截然不同的工作模式，开发者可按策略需求自由
 ##### 8. 市场宽度与期权属性（选配）
 - `up_count` / `same_count` / `down_count`：全市场/该指数涵盖的上涨家数、平盘家数、下跌家数；
 - `option_details`（仅期权合约输出）：包含 `contract_id`（合约代码）、`object_id`（标的证券代码）、`stock_unit`（合约单位）、`exercise_price`（行权价）、`start_date`（上市首日）、`del_date`（到期日）、`pre_interest`（昨持仓量）、`open_interest`（持仓量）。
+
+##### 9. ⭐️ 单次逐笔成交与逐笔委托响应 (`once: trade` / `once: entrust`)
+
+单次查询标的的最新成交或委托流水，返回 `next_cursor` 游标以支持毫秒级向早连续翻页回溯：
+
+```json
+{
+  "ts": 1790061785169,
+  "list": [
+    {
+      "action": "once",
+      "type": "trade",
+      "symbol": "600519.sh",
+      "next_cursor": "23030429",
+      "rows": [
+        {
+          "time": 145958250,
+          "trade_id": 982146,
+          "price": 1649900,
+          "volume": 100,
+          "side": "S",
+          "amount": 164990,
+          "trade_seq": 982146
+        }
+      ]
+    }
+  ]
+}
+```
+
+- `next_cursor`：**翻页游标字符串**。在下一次请求中填入 `"cursor": "23030429"`，即可连续获取更早批次的历史逐笔记录；翻至开盘或无更早记录时，返回空数组；
+- `rows`：包含单批逐笔明细记录（单次拉取返回 1～100 条，由 `count` 控制；每条记录字段定义同流式逐笔报文）。
+
+##### 10. ⭐️ 基准授时与时间校准响应 (`once: time`)
+
+提供微秒/毫秒级对齐的服务端基准时间戳与当前交易日历标记：
+
+```json
+{
+  "ts": 1790061785169,
+  "list": [
+    {
+      "action": "once",
+      "type": "time",
+      "datetime": 20261018172510123,
+      "date": 20261018,
+      "time": 172510123,
+      "trading_day": 20261018,
+      "code": 0
+    }
+  ]
+}
+```
+
+- `datetime`：格式为 `YYYYMMDDHHMMSSmmm` 的原生高精度整数时间戳；
+- `trading_day`：当前有效交易日（格式 `YYYYMMDD`）；
+- **策略用途**：高频量化程序可在开盘前或盘中随时发起授时校准，消除本地系统时钟偏差（Clock Skew），确保逐笔撮合序列毫秒级精准对齐。
 
 ---
 
@@ -325,14 +382,15 @@ D204 提供两种截然不同的工作模式，开发者可按策略需求自由
       "action": "push",
       "type": "thousand",
       "symbol": "600519.sh",
+      "clear": true,
       "rows": [
         {
           "bids": [
-            {"level": 1, "price": 1800100, "volume": 1200, "order_count": 5},
-            {"level": 2, "price": 1800000, "volume": 5800, "order_count": 12}
+            {"level": 1, "price": 1800100, "volume": 1200, "order_count": 5, "time": 145958000, "row_kind": "", "entry_id": 102401},
+            {"level": 2, "price": 1800000, "volume": 5800, "order_count": 12, "time": 145957500, "row_kind": "", "entry_id": 102402}
           ],
           "asks": [
-            {"level": 1, "price": 1800200, "volume": 800, "order_count": 3}
+            {"level": 1, "price": 1800200, "volume": 800, "order_count": 3, "time": 145958100, "row_kind": "", "entry_id": 102403}
           ]
         }
       ]
@@ -341,12 +399,16 @@ D204 提供两种截然不同的工作模式，开发者可按策略需求自由
 }
 ```
 
+- `clear`：**账簿重置/全量同步标志**（布尔值）。当连接刚建立、断线重连或服务端发起全盘基准校准时下发 `true`，指示客户端清空历史深度缓存并以此帧作为最新千档账簿基准；
 - `bids`：买盘档位，按价格由高到低严格排序；
 - `asks`：卖盘档位，按价格由低到高严格排序；
 - `level`：档位序号（1, 2, 3 ... 最大可达千档）；
 - `price`：该档位原生整型价码；
 - `volume`：该档位挂单总股数；
-- `order_count`：该档位排队挂单总笔数。
+- `order_count`：该档位排队挂单总笔数；
+- `time`：该档位最新撮合变动时间戳（可选）；
+- `row_kind`：档位类别标识；
+- `entry_id`：条目流水序号。
 
 ### 4.2 实时逐笔成交 (`trade`)
 
@@ -363,22 +425,33 @@ D204 提供两种截然不同的工作模式，开发者可按策略需求自由
       "trade_id": 123456,
       "trade_seq": 123456,
       "price": 1800100,
+      "prev_price": 1800000,
       "volume": 100,
       "amount": 180010,
       "side": "B",
       "trade_serial_no": 10993042,
       "buy_order_id": 123450,
       "sell_order_id": 123451,
+      "buy_order_qty": 500,
+      "sell_order_qty": 300,
       "buy_remain": 0,
-      "sell_remain": 200
+      "sell_remain": 200,
+      "bid1_price": 1800100,
+      "ask1_price": 1800200,
+      "nature": ""
     }
   ]
 }
 ```
 
 - `side`：`"B"` = 买方主动吃单（外盘），`"S"` = 卖方主动砸单（内盘）；
+- `price` / `prev_price`：本次成交价格 / 前一成交价格（原生整型）；
+- `amount`：成交金额（元）；
 - `buy_order_id` / `sell_order_id`：买卖双方交易所原始委托号；
-- `buy_remain` / `sell_remain`：撮合后双方委托单的剩余挂单股数（剩余为 0 表示该笔委托完全成交）。
+- `buy_order_qty` / `sell_order_qty`：买卖双方初始申报总委托量（股）；
+- `buy_remain` / `sell_remain`：撮合后双方委托单的剩余挂单股数（剩余为 0 表示该笔委托完全成交）；
+- `bid1_price` / `ask1_price`：撮合成交当时对应的买一 / 卖一盘口参考价；
+- `nature`：成交性质与业务属性代码。
 
 ### 4.3 实时逐笔委托 (`entrust`) 申报推送
 
@@ -393,28 +466,44 @@ D204 提供两种截然不同的工作模式，开发者可按策略需求自由
     {
       "time": 140957720,
       "order_id": 123456,
+      "order_seq": 123456,
+      "order_serial_no": 892145,
       "price": 1800100,
+      "prev_price": 0,
       "volume": 500,
+      "amount": 900050,
       "side": "B",
-      "order_type": "A"
+      "order_type": "A",
+      "operation": "$",
+      "nature": ""
     },
     {
       "time": 140958100,
       "order_id": 123456,
+      "order_seq": 123457,
+      "order_serial_no": 892150,
       "price": 1800100,
+      "prev_price": 1800100,
       "volume": 500,
+      "amount": 900050,
       "side": "B",
-      "order_type": "D"
+      "order_type": "D",
+      "operation": "",
+      "nature": ""
     }
   ]
 }
 ```
 
 - `side`：`"B"` = 买入申报，`"S"` = 卖出申报；
+- `order_id` / `order_serial_no`：交易所订单编号 / 申报流水号；
+- `prev_price`：原申报价格（撤单删除时指示被撤单的原委托价）；
+- `amount`：委托申报总金额（元）；
 - `order_type`：**订单动作类型**：
   - **`"A"`**：**新增申报（Add）**，正常进入委托簿排队（深沪两市统一映射）；
   - **`"D"`**：**撤单删除（Delete）**，交易者主动撤单，从委托簿中扣减移除（沪市原生专属）；
-- `operation`：深市原生订单类别标识（`$` = 限价申报，`#` = 市价申报）。
+- `operation`：深市原生订单类别标识（`$` = 限价申报，`#` = 市价申报）；
+- `nature`：委托属性代码。
 
 > 💡 **深沪两市逐笔委托与撤单口径对照**：
 > - **沪市（.sh）**：原生下发明确的动作类型（`order_type: "A"` 代表新增挂单申报，`"D"` 代表撤单删除）。
@@ -555,8 +644,9 @@ def on_message(ws, message):
         sym = it.get("symbol")
 
         # 错误提示
-        if typ == "error":
-            print(f"[错误] code={it.get('code')}: {it.get('msg')}")
+        if typ == "error" or action == "error":
+            err_msg = it.get("message") or it.get("msg")
+            print(f"[错误提醒] code={it.get('code', '—')}: {err_msg}")
             continue
 
         # 控制回执
@@ -564,14 +654,26 @@ def on_message(ws, message):
             print(f"[控制回执] {sym} -> {it.get('message')}")
             continue
 
-        # 1. 单次快照响应 (once: snapshot)
+        # 1. 基准授时响应 (once: time)
+        if action == "once" and typ == "time":
+            print(f"[基准授时] 交易日:{it.get('trading_day')} | 时间:{it.get('time')} | 纳秒/毫秒时间戳:{it.get('datetime')}")
+            continue
+
+        # 2. 单次历史逐笔翻页响应 (once: trade / entrust)
+        if action == "once" and typ in ("trade", "entrust"):
+            cursor = it.get("next_cursor")
+            rows = it.get("rows", [])
+            print(f"[单次逐笔拉取] {sym} -> 本批返回 {len(rows)} 条 | 下一页翻页游标: {cursor}")
+            continue
+
+        # 3. 单次综合十档快照响应 (once: snapshot)
         if action == "once" and typ == "snapshot":
             parse_snapshot(it)
             # 快照解析展示完成后，启动流式订阅演示
             subscribe_streaming(ws)
             continue
 
-        # 2. 流式推送数据 (push)
+        # 4. 实时流式推送数据 (push)
         if action == "push":
             rows = it.get("rows", [])
             if typ == "thousand":
@@ -595,8 +697,12 @@ def subscribe_streaming(ws):
 
 def on_open(ws):
     print(">>> D204 WebSocket 连接建立成功！")
-    # 首先发起单次查询：获取目标股票综合十档快照（含指标、十档、分笔成交与委托队列）
-    print(f">>> 发送单次快照查询 (once: snapshot) -> {TARGET}")
+    # 1. 首先发起基准授时校准，对齐本地量化时钟
+    print(">>> [步骤1] 发送基准授时请求 (once: time)...")
+    ws.send(json.dumps({"action": "once", "type": "time"}))
+
+    # 2. 发起单次查询：获取目标股票综合十档快照（含指标、十档、分笔成交与委托队列）
+    print(f">>> [步骤2] 发送单次快照查询 (once: snapshot) -> {TARGET}")
     once_query = {
         "action": "once",
         "type": "snapshot",

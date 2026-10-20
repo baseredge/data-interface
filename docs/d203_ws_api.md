@@ -6,7 +6,7 @@
 
 ## 1. 快速接入与前置条件
 
-D203 提供标准 WebSocket 流式接口。所有数据均采用 **UTF-8 纯文本 JSON** 格式传输，无需安装复杂的二进制协议库或解析环境，任何支持 WebSocket 的编程语言（Python、Go、C++、Java、Rust、Node.js 等）均可直接接入。
+D203 提供标准 WebSocket 流式接口。所有数据均采用标准 **UTF-8 JSON** 格式传输，无需安装第三方专有 SDK，任何支持 WebSocket 的编程语言（Python、Go、C++、Java、Rust、Node.js 等）均可直接接入。
 
 ### 1.1 服务连接地址
 
@@ -29,16 +29,27 @@ ws://127.0.0.1:<ProxyPort>/d203
 
 连接建立后，客户端通过 WebSocket 发送 JSON 指令订阅或退订指定品种。每条客户端消息为**单个 JSON 对象**。
 
-### 2.1 核心请求字段
+### 2.1 核心请求字段与指令支持矩阵
 
 | 字段名 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `type` | string | 是 | 数据类型：`entrust`（逐笔委托）、`trade`（逐笔成交）、`orderstat`（委托统计）、`fullqueue`（全景队列十档）、`maintrade`（主力大单成交） |
+| `type` | string | 是 | 数据类型：`entrust`（逐笔委托）、`trade`（逐笔成交）、`orderstat`（委买委卖挂单统计）、`fullqueue`（全息千档队列/全档深度队列）、`maintrade`（主力大单成交） |
 | `code` | string | 是 | 标的代码，格式为大写市场前缀 + 6位代码，如 `SH600519`、`SZ000001`、`BJ832000` |
-| `enable` | int | 是 | 操作类型：`1` = 实时持续推送，`0` = 退订释放，`2` = 单次/历史序列翻页查询 |
-| `num` | int | 否 | 单批次推送或翻页最大记录条数（默认由服务控制，翻页时建议指定，如 20、50） |
-| `startseq` | int | 否 | 起始序号/游标。在 `enable: 2`（单次翻页）时**必填**，用于精准回溯历史逐笔序列 |
-| `cond` | object | 否 | 过滤条件对象（仅适用于 `entrust` 逐笔委托，详见 2.3 节） |
+| `enable` | int | 是 | 操作类型：`1` = 实时持续推送，`0` = 退订释放，`2` = 单次/历史序列翻页查询（各数据类型支持的操作详见下表） |
+| `num` | int | 否 | 单批次推送或翻页最大记录条数（适用于 `entrust`、`trade`、`maintrade`；翻页时建议指定如 20、50） |
+| `startseq` | int | 否 | 起始序号/游标（适用于 `entrust`、`trade`；在 `enable: 2` 单次翻页时**必填**，用于精准回溯历史逐笔序列） |
+| `limit` | int | 否 | **返回档位深度限制**（**仅适用于 `fullqueue` 全息队列**；默认全量推送可达千档深度，亦可指定如 10、50 按需限制最大下发档位数） |
+| `cond` | object | 否 | 过滤条件对象（**仅适用于 `entrust` 逐笔委托**，详见 2.3 节） |
+
+#### 各数据类型指令与参数支持矩阵
+
+| `type` | 业务含义 | `enable` 允许取值 | 允许的可选参数 | 约束说明与防错提示 |
+| :--- | :--- | :---: | :--- | :--- |
+| **`entrust`** | 逐笔委托（含撤单） | `1`（推送）, `0`（退订）, `2`（翻页） | `num`, `startseq`, `cond` | `enable: 2` 历史回溯翻页时必须提供 `startseq`；支持 `cond` 条件过滤。 |
+| **`trade`** | 逐笔成交 | `1`（推送）, `0`（退订）, `2`（翻页） | `num`, `startseq` | `enable: 2` 历史回溯翻页时必须提供 `startseq`。 |
+| **`fullqueue`** | **全息千档队列** | `1`（实时推送） | `limit` | **原生千档全档位深度**；仅接受 `limit` 限制档位数；不可传入 `num`、`startseq` 或 `cond`。 |
+| **`orderstat`** | 委买委卖瞬时统计 | `1`（实时推送） | 无 | 仅接受 `code`, `marketid`, `enable`；不可传入 `num`、`limit` 等额外参数。 |
+| **`maintrade`** | 主力大单成交 | `1`（推送）, `2`（单次） | `num`, `tradeno`, `reqtype`, `sortfield`, `sorttype`, `begindex`, `endindex` | 专项大额撮合成交流水通道。 |
 
 ### 2.2 基础请求示例
 
@@ -46,6 +57,17 @@ ws://127.0.0.1:<ProxyPort>/d203
 ```json
 {"type":"trade","code":"SH600519","enable":1,"num":50}
 {"type":"entrust","code":"SH600519","enable":1,"num":50}
+```
+
+#### 实时订阅全息千档队列（默认全量千档或指定档位）
+```json
+{"type":"fullqueue","code":"SH600519","enable":1}
+{"type":"fullqueue","code":"SH600519","enable":1,"limit":50}
+```
+
+#### 实时订阅委买委卖瞬时挂单统计
+```json
+{"type":"orderstat","code":"SH600519","enable":1}
 ```
 
 #### 历史序列回溯与单次翻页查询
@@ -104,8 +126,10 @@ ws://127.0.0.1:<ProxyPort>/d203
 }
 ```
 - `ts`：服务端毫秒级时间戳；
-- `list`：行情或控制结果项列表；
-- 列表中每一项包含该标的本次变动的具体行数组 `rows`。
+- `list`：行情或控制结果项列表。各数据类型在列表项内部采用针对性的结构承载：
+  - **`entrust` / `trade` / `maintrade`**：包含单笔流水数组 `rows`；
+  - **`fullqueue`（全息千档队列）**：包含买卖双向各价位深度排队数组 `buy` 与 `sell`（非 `rows`）；
+  - **`orderstat`（委托统计）**：包含当前在册挂单的加权均价与总量金额指标，以及最优买一/卖一单档队列明细。
 
 ---
 
@@ -124,6 +148,20 @@ ws://127.0.0.1:<ProxyPort>/d203
   "code": "600519",
   "market_id": 1,
   "total_num": 2,
+  "statistics": {
+    "buy_volume": 12890500,
+    "sell_volume": 15402100,
+    "buy_order_count": 8920,
+    "sell_order_count": 9410,
+    "buy_num": 5600,
+    "sell_num": 6120,
+    "buy_cancel_count": 420,
+    "sell_cancel_count": 510,
+    "buy_cancel_volume": 850000,
+    "sell_cancel_volume": 920000,
+    "buy_cancel_amount": 1402500000,
+    "sell_cancel_amount": 1518000000
+  },
   "rows": [
     {
       "time": 93001230,
@@ -165,6 +203,19 @@ ws://127.0.0.1:<ProxyPort>/d203
 | `order_mmp` | int | **委托档数（申报盘口位置）**：委托下单当时所处的买卖盘口深度档位（1~3=买1~买3, 4=涨停, 5~7=卖1~卖3, 8=跌停等，详见下表） |
 | `volume_code` | int | **单据体量级别**：`1`=超大单，`2`=大单，`3`=中单，`4`=小单 |
 | `flags` | int | 业务标记位（整型） |
+
+#### ⭐️ 重点：全日委托撤单统计对象 (`statistics`)
+
+当服务端随逐笔委托下发累计统计时，`statistics` 对象提供全日累计统计指标，是追踪主力撤单规模的核心指标：
+
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `buy_volume` / `sell_volume` | int | 当前在册委买/委卖总股数 |
+| `buy_order_count` / `sell_order_count` | int | 当前在册委买/委卖总笔数 |
+| `buy_num` / `sell_num` | int | 累计委买/委卖成交订单数 |
+| `buy_cancel_count` / `sell_cancel_count` | int | **累计买方撤单笔数 / 卖方撤单笔数** |
+| `buy_cancel_volume` / `sell_cancel_volume` | int | **累计买方撤单总股数 / 卖方撤单总股数** |
+| `buy_cancel_amount` / `sell_cancel_amount` | int | **累计买方撤单总金额 / 卖方撤单总金额** |
 
 #### ⭐️ 重点：委托状态代码 (`status`) 对照表
 
@@ -298,9 +349,10 @@ ws://127.0.0.1:<ProxyPort>/d203
 提供**当前盘口在册排队挂单**的加权均价、总量与总金额统计，适合构建盘口挂单冷热与微观动能指标。
 
 > 💡 **统计口径说明**：
-> - **`orderstat`** 反映的是**当前瞬时在册挂单快照**（委买/委卖加权均价、总量与总金额）。
+> - **`orderstat`** 反映的是**当前瞬时在册挂单快照**（委买/委卖加权均价、在册总量与总金额）。
 > - **全日累计委托与撤单笔数**（`buy_cancel_count`、`sell_cancel_count`）请通过订阅 **`entrust`（逐笔委托）** 报文内嵌的 `statistics` 对象获取。
 
+#### 响应结构示例
 ```json
 {
   "action": "push",
@@ -311,50 +363,194 @@ ws://127.0.0.1:<ProxyPort>/d203
   "buy_avg_price": 1649800,
   "buy_volume": 12890500,
   "buy_order_count": 8920,
+  "buy_num": 5600,
   "buy_amount": 21266746900,
   "sell_avg_price": 1650300,
   "sell_volume": 15402100,
   "sell_order_count": 9410,
-  "sell_amount": 25418085630
+  "sell_num": 6120,
+  "sell_amount": 25418085630,
+  "buy": {
+    "price": 1650000,
+    "volume": 20000,
+    "big_sum_volume": 10000,
+    "order_count": 8,
+    "flags": 0,
+    "direction": 1,
+    "is_full": true,
+    "operations": [
+      {"order_no": 589214, "volume": 2000, "trade_volume": 0, "status": 0, "flags": 0}
+    ]
+  },
+  "sell": {
+    "price": 1650100,
+    "volume": 15000,
+    "big_sum_volume": 8000,
+    "order_count": 5,
+    "flags": 0,
+    "direction": 2,
+    "is_full": true,
+    "operations": [
+      {"order_no": 589220, "volume": 3000, "trade_volume": 0, "status": 0, "flags": 0}
+    ]
+  }
 }
 ```
+
+#### 字段定义与数据字典
 
 | 字段名 | 类型 | 说明 |
 | :--- | :--- | :--- |
 | `buy_avg_price` / `sell_avg_price` | int | 委买加权均价 / 委卖加权均价（原生整数价码） |
 | `buy_volume` / `sell_volume` | int | 当前在册委买总股数 / 委卖总股数 |
 | `buy_order_count` / `sell_order_count` | int | 当前在册委买总笔数 / 委卖总笔数 |
+| `buy_num` / `sell_num` | int | 当前委买/委卖成交订单数 |
 | `buy_amount` / `sell_amount` | int | 当前在册委买总金额 / 委卖总金额 |
+| `buy` / `sell` | object | 最优买一 / 卖一档位的单档队列结构（可选，字段格式同 `fullqueue` 价位对象） |
 
 ---
 
-### 4.4 全景队列十档 (`fullqueue`)
+### 4.4 全息千档队列 (`fullqueue`)
 
-提供买卖前十档的详细深度排队队列，以及该档位内部发生的微观挂单/撤单变更操作。
+提供买卖双向**全量千档深度（全档位深度）**盘口，以及每个价格档位内部挂接的具体订单微观排队队列与挂单撤单明细事件。
 
-- `direction`：`1` = 买方队列，`2` = 卖方队列；
-- `is_full`：`true` = 全景快照刷新，`false` = 增量变化；
-- `price`：档位价格；
-- `volume`：档位总排队股数；
-- `order_count`：该档位排队挂单笔数；
-- `operations`：队列具体明细事件：
-  - `order_no`：排队的委托单号；
-  - `volume`：排队股数；
-  - `trade_volume`：已撮合成交股数；
-  - `status`：状态（`0`=挂单排队，`1`=撮合成交移除，`3`=撤单移除）。
+> ⭐️ **全息千档深度与档位控制**：
+> - **原生千档全深度**：D203 的 `fullqueue` 原生覆盖买卖双方全部申报档位（买盘与卖盘深度可达上千档），绝非传统有限十档；
+> - **档位数量约束 (`limit`)**：订阅时默认推送全量千档队列；如策略仅需观察盘口核心浅层或中层深度，可在订阅请求中传入 `"limit": 10` 或 `"limit": 50` 灵活控制最大返回档位数，兼顾超低带宽消耗与核心深度洞察；
+> - **结构差异提示**：`fullqueue` 响应中顶层**不包含 `rows` 数组**，而是按买卖方向拆分为 **`buy`**（买盘各价位数组）与 **`sell`**（卖盘各价位数组）。
+
+#### 响应结构示例
+```json
+{
+  "action": "push",
+  "type": "fullqueue",
+  "symbol": "SH600519",
+  "code": "600519",
+  "market_id": 1,
+  "buy": [
+    {
+      "price": 1650000,
+      "volume": 25000,
+      "big_sum_volume": 15000,
+      "order_count": 6,
+      "direction": 1,
+      "is_full": true,
+      "flags": 0,
+      "operations": [
+        {
+          "order_no": 589214,
+          "volume": 5000,
+          "trade_volume": 0,
+          "status": 0,
+          "flags": 0
+        },
+        {
+          "order_no": 589218,
+          "volume": 20000,
+          "trade_volume": 0,
+          "status": 0,
+          "flags": 0
+        }
+      ]
+    }
+  ],
+  "sell": [
+    {
+      "price": 1650200,
+      "volume": 12000,
+      "big_sum_volume": 10000,
+      "order_count": 3,
+      "direction": 2,
+      "is_full": true,
+      "flags": 0,
+      "operations": [
+        {
+          "order_no": 589110,
+          "volume": 10000,
+          "trade_volume": 0,
+          "status": 0,
+          "flags": 0
+        }
+      ]
+    }
+  ]
+}
+```
+
+#### 价位层级（`buy[]` / `sell[]`）字段定义
+
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `price` | int | 档位委托价格（原生整型价码） |
+| `volume` | int | 该档位在册总排队股数（单位：股） |
+| `big_sum_volume` | int | 该档位大单（大额委托）排队汇总股数 |
+| `order_count` | int | 该档位在册排队委托订单总笔数 |
+| `direction` | int | **队列买卖方向**：`1` = 买方队列，`2` = 卖方队列 |
+| `is_full` | bool | **刷新模式**：`true` = 全景快照刷新（直接覆盖/重置本地该价位）；`false` = 增量队列变动 |
+| `flags` | int | 档位业务标记位 |
+| `operations` | object[] | 该价位当前挂接的订单排队明细事件数组（结构详见下表） |
+
+#### 订单排队明细（`operations[]`）字段定义
+
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `order_no` | int | **排队的交易所原始委托单号**（可与 `entrust.order_no` 关联穿透追踪） |
+| `volume` | int | 该笔订单当前排队剩余股数（增量更新时若为 0 代表该单彻底退出队列） |
+| `trade_volume` | int | 该笔订单已撮合成交股数 |
+| `status` | int | **排队变动状态**：`0` = 挂单排队（新单进入），`1` = 撮合成交移除，`2` = 部分成交（继续排队），`3` = 撤单移除 |
+| `flags` | int | 排队条目业务标记位 |
+
+#### ⭐️ 重点：本地全息队列维护算法（快照与增量合并原则）
+
+为保证客户端千档全景账簿与交易所毫秒级同步，建议客户端采取以下状态机维护队列：
+1. **快照覆盖 (`is_full == true`)**：
+   - 表明服务端下发该价位的完整基准镜像。直接过滤保留 `volume > 0` 的订单替换本地该价位明细；
+   - 若某价位 `volume == 0` 或 `order_count == 0` 且 `operations` 为空，说明该价位已无任何在册挂单，直接从本地深度表中剔除该价位。
+2. **增量更新 (`is_full == false`)**：
+   - 遍历 `operations`：若 `status in (1, 3)` 或 `volume == 0`，则在本地该价位排队队列中查找匹配的 `order_no` 并将其删除；
+   - 若 `status == 2`（部分成交）或新进入排队，更新该 `order_no` 对应的 `volume`（剩余挂单量）与 `trade_volume`（累计成交量）。
+3. **盘口展现与排序**：
+   - 买方队列（`buy`）按价格从高到低降序排序（买一、买二……买千档）；
+   - 卖方队列（`sell`）按价格从低到高升序排序（卖一、卖二……卖千档）。
 
 ---
 
 ### 4.5 主力成交 (`maintrade`)
 
-专门筛选下发大额成交订单，方便策略直接捕获大机构、主力游资扫盘动作。
+专门筛选下发大额成交订单，剔除散户小单杂波，方便量化策略直接捕获大机构、主力游资扫盘动作。
 
-- `time`：成交时间；
-- `trade_no`：成交编号；
-- `price`：成交价格；
-- `volume`：大额成交股数；
-- `amount`：成交总金额；
-- `active_flag`：主动方向（`0`=主买/外盘，`1`=主卖/内盘；枚举定义与 `trade.active_flag` 完全一致，字段缺省时代表 0）。
+#### 响应结构示例
+```json
+{
+  "action": "push",
+  "type": "maintrade",
+  "symbol": "SH600519",
+  "code": "600519",
+  "market_id": 1,
+  "total_num": 1,
+  "rows": [
+    {
+      "time": 93015000,
+      "trade_no": 120560,
+      "price": 1650000,
+      "volume": 50000,
+      "amount": 82500000,
+      "active_flag": 0
+    }
+  ]
+}
+```
+
+#### `rows` 字段定义与数据字典
+
+| 字段名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `time` | int | 撮合成交时间（原生整型 `HHMMSSmmm` 或 `HHMMSS`） |
+| `trade_no` | int | 成交流水号（业务唯一主键） |
+| `price` | int | 撮合成交价格（原生整型价码） |
+| `volume` | int | 大额成交数量（股） |
+| `amount` | int | 大额成交金额（元） |
+| `active_flag` | int | **主动买卖方向**：`0` = 主动买入（外盘），`1` = 主动卖出（内盘）；枚举定义与 `trade.active_flag` 完全一致，字段缺省时代表 0 |
 
 ---
 
@@ -486,6 +682,32 @@ def parse_trade(stock_code, row):
     print(f"[逐笔成交] {time_str} | 标的:{stock_code} | 成交号:{trade_no} | 价:{price:.2f} | 量:{vol}股 | 级别:{vc_str} | 方向:{act_str} | 买单:{buy_no}({st_map.get(buy_st, str(buy_st))}) <=> 卖单:{sell_no}({st_map.get(sell_st, str(sell_st))})")
 
 
+def parse_maintrade(stock_code, row):
+    """解析主力大单成交流水"""
+    time_str = format_time(row.get("time", 0))
+    trade_no = row.get("trade_no", 0)
+    price = row.get("price", 0) / 1000.0
+    vol = row.get("volume", 0)
+    amt = row.get("amount", 0)
+    act_str = "🔴 主买(外盘)" if row.get("active_flag", 0) == 0 else "🟢 主卖(内盘)"
+    print(f"[主力大单] {time_str} | 标的:{stock_code} | 成交号:{trade_no} | {act_str} | 价格:{price:.2f} | 数量:{vol}股 | 金额:{amt:,.0f}元")
+
+
+def parse_fullqueue(stock_code, item):
+    """解析全息千档队列 (买卖全量价位深度及每个价位内部排队挂单明细)"""
+    buys = item.get("buy", [])
+    sells = item.get("sell", [])
+    buy_ops = sum(len(lvl.get("operations", [])) for lvl in buys)
+    sell_ops = sum(len(lvl.get("operations", [])) for lvl in sells)
+
+    b1_price = (buys[0].get("price", 0) / 1000.0) if buys else 0.0
+    b1_vol = buys[0].get("volume", 0) if buys else 0
+    s1_price = (sells[0].get("price", 0) / 1000.0) if sells else 0.0
+    s1_vol = sells[0].get("volume", 0) if sells else 0
+
+    print(f"[全息千档队列] 标的:{stock_code} | 买盘档数:{len(buys)}档(排队单:{buy_ops}笔) | 卖盘档数:{len(sells)}档(排队单:{sell_ops}笔) | 买一:{b1_price:.2f}({b1_vol}股) <=> 卖一:{s1_price:.2f}({s1_vol}股)")
+
+
 def on_message(ws, message):
     try:
         data = json.loads(message)
@@ -513,14 +735,31 @@ def on_message(ws, message):
         # 行情数据解析
         rows = item.get("rows", [])
         if msg_type == "entrust":
+            # 1. 打印逐笔委托与撤单
             for r in rows:
                 parse_entrust(code, r)
+            # 2. 若携带全日委托统计与撤单累计，打印撤单概况
+            stats = item.get("statistics")
+            if stats:
+                bc_cnt = stats.get("buy_cancel_count", 0)
+                sc_cnt = stats.get("sell_cancel_count", 0)
+                bc_vol = stats.get("buy_cancel_volume", 0)
+                sc_vol = stats.get("sell_cancel_volume", 0)
+                print(f"[委托统计快照] 标的:{code} | 累计买撤:{bc_cnt}笔({bc_vol}股) | 累计卖撤:{sc_cnt}笔({sc_vol}股)")
         elif msg_type == "trade":
             for r in rows:
                 parse_trade(code, r)
+        elif msg_type == "maintrade":
+            for r in rows:
+                parse_maintrade(code, r)
+        elif msg_type == "fullqueue":
+            parse_fullqueue(code, item)
         elif msg_type == "orderstat":
-            stats = item.get("statistics", {})
-            print(f"[委托统计] 标的:{code} | 委买总量:{stats.get('buy_volume')} | 委卖总量:{stats.get('sell_volume')} | 买撤单笔数:{stats.get('buy_cancel_count')} | 卖撤单笔数:{stats.get('sell_cancel_count')}")
+            b_vol = item.get("buy_volume", 0)
+            s_vol = item.get("sell_volume", 0)
+            b_avg = item.get("buy_avg_price", 0) / 1000.0
+            s_avg = item.get("sell_avg_price", 0) / 1000.0
+            print(f"[委买委卖统计] 标的:{code} | 委买在册:{b_vol}股 (均价:{b_avg:.2f}) | 委卖在册:{s_vol}股 (均价:{s_avg:.2f})")
 
 
 def on_open(ws):
@@ -535,7 +774,7 @@ def on_open(ws):
     }
     ws.send(json.dumps(sub_trade))
 
-    # 2. 订阅逐笔委托（包含挂单与撤单）
+    # 2. 订阅逐笔委托（包含挂单与撤单明细）
     sub_entrust = {
         "type": "entrust",
         "code": TARGET_STOCK,
@@ -544,7 +783,15 @@ def on_open(ws):
     }
     ws.send(json.dumps(sub_entrust))
 
-    # 3. 订阅全日委托统计
+    # 3. 订阅全息千档队列 (原生千档深度，亦可加 "limit": 50 按需限制最大档位数)
+    sub_queue = {
+        "type": "fullqueue",
+        "code": TARGET_STOCK,
+        "enable": 1
+    }
+    ws.send(json.dumps(sub_queue))
+
+    # 4. 订阅委买委卖瞬时挂单统计
     sub_stat = {
         "type": "orderstat",
         "code": TARGET_STOCK,
