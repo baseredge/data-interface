@@ -1618,7 +1618,7 @@ print(timestamp_to_text(1785859200))
 | `market` | `sh` | 市场代码：`sh` 上海，`sz` 深圳。 |
 | `instrucode` | `000001` | 证券代码，不含 `sh`/`sz` 前缀。 |
 
-响应：`code,message,data`；`data` 为对象，字段以实际数据为准。
+响应：`code,message,data`；`code` 为字符串 `"200"`，`data` 为数组（历史除权除息规则列表），每项包含 `From`、`To`、`Rule`；合法无除权记录时 `data` 为空数组 `[]`。
 
 ### 55. 个股历史 K 线
 
