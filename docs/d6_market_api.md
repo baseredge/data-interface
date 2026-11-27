@@ -141,11 +141,11 @@ HTTP 查询参数最终都是文本，下面的“数字”和“布尔值”在
 
 | 场景 | 正确示例 | 说明 |
 |---|---|---|
-| K 线市场 | `Market: "SZ"` | K 线请求体使用大写 `SZ`/`SH`。 |
+| K 线市场 | `Market: "SZ"` | A 股使用大写 `SZ`/`SH`；外盘个股用 `NASDAQ`/`NYSE`/`AMEX`，美洲/美股指数用 `AMIDX`（如 `Inst: "DJIA"`）。 |
 | K 线证券代码 | `Inst: "300052"` | 只填代码，不带市场前缀。 |
 | 普通查询市场 | `market=sh` | 多数 GET 接口使用小写 `sh`/`sz`/`all`。 |
 | 基本面证券代码 | `symbol=sh000001` | 这个接口要求市场前缀和代码连在一起。 |
-| WebSocket 个股 | `oldmarketcode: "sz", code: "300052"` | 市场和代码分开。 |
+| WebSocket 标的 | `oldmarketcode: "sz", code: "300052"` | A 股 `oldmarketcode` 用 `sh`/`sz`/`bj`；港股/美股个股与外盘指数**必须全大写**（如 `NASDAQ`/`NYSE`/`AMEX`/`HKSE`/`AMIDX`/`HKIDX`），见 3.2 节。 |
 | 涨跌方向 | `upDownType=up` | `up` 表示上涨/涨停，`down` 表示下跌/跌停。 |
 | 日期 | `2026-08-05` | 格式固定为 `YYYY-MM-DD`。 |
 | 报告期 | `1785923618` | `reportDate` 是秒级时间戳，不是毫秒。 |
@@ -508,23 +508,52 @@ ws.onmessage = (event) => {
 };
 ```
 
-### 3.2 市场编号
+### 3.2 市场编号与 `oldmarketcode` 对照（含外盘个股与全球指数）
 
-| `marketid` | 市场 |
-|---:|---|
-| `1` | 上海 |
-| `0` | 深圳 |
-| `118` | 港股 |
-| `156` | 纳斯达克 |
-| `158` | 美股其他市场 |
+> **排查必看（为什么查美股/外盘指数会返回空参数）**：
+> 1. **`106`/`156`、`107`/`157`、`108`/`158` 市场里只有美股个股和 ETF，不含道琼斯/纳指/标普等指数**。往 `156`/`158` 查 `IXIC`/`DJI`/`SPX` 会返回 `name: ""`、`newprice: "0"` 等空/零字段。
+> 2. **外盘指数在 `200~239` 独立市场编号里**，其中美股及美洲指数的 `oldmarketcode` 固定为全大写 **`"AMIDX"`**；且**道琼斯代码是 `"DJIA"`（不是 `"DJI"`）**。
+> 3. **大小写严格区分**：A 股使用小写 `sh`/`sz`/`bj`，而**港股、美股个股及全球指数的 `oldmarketcode` 必须全大写**（如 `NASDAQ`、`NYSE`、`AMEX`、`HKSE`、`AMIDX`、`HKIDX`）。传入小写（如 `nasdaq`、`amidx`）会直接返回空 `Body: {}`，传入数字字符串（如 `"156"`）或 `"us"` 会无回包。
+> 4. **港股指数代码带前导点 `.`**：`118`/`HKIDX` 下请传 `.HSI`、`.HSCE`、`.HSCC`、`.HSTECH`，不要传 `HSI`。
 
-个股订阅中的 `oldmarketcode` 使用 `sh` 或 `sz`；`code` 只填写证券代码，不带市场前缀。
+#### A 股、港股与美股个股市场
+
+| `marketid` | `oldmarketcode` | 市场说明 | 代表 `code` |
+|---:|---|---|---|
+| `0` | `sz` | 深圳 A 股 / 深市指数 | `000001`、`399001`、`300052` |
+| `1` | `sh` | 上海 A 股 / 沪市指数 | `000001`、`600519` |
+| `3` | `bj` | 北交所 | `920000` |
+| `102` / `152` | `HKSE` / `DELAY_HKSE` | 港股个股（实时 / 延迟） | `00700` |
+| `118` / `168` | `HKIDX` / `DELAY_HKIDX` | 港股指数（实时 / 延迟，代码带 `.`） | `.HSI`、`.HSCE`、`.HSCC`、`.HSTECH` |
+| `106` / `156` | `NASDAQ` / `DELAY_NASDAQ` | 纳斯达克个股与 ETF（**不含指数**） | `AAPL`、`NVDA` |
+| `107` / `157` | `NYSE` / `DELAY_NYSE` | 纽交所个股与 ETF（**不含指数**） | `BABA` |
+| `108` / `158` | `AMEX` / `DELAY_AMEX` | 美股 AMEX 个股与 ETF（**不含指数**） | `AAA` |
+
+#### 美股及全球主要指数（`marketid 200~239`）
+
+全球指数每个指数占一个独立 `marketid`，也可以统一通过大写 `oldmarketcode`（如 `AMIDX`）订阅：
+
+| 区域分组 (`oldmarketcode`) | `marketid` | `code` | 名称 |
+|---|---:|---|---|
+| **美洲指数 (`AMIDX`)** | `206` | **`DJIA`** | 道琼斯指数（注意不是 `DJI`） |
+| **美洲指数 (`AMIDX`)** | `211` | **`IXIC`** | 纳斯达克综指 |
+| **美洲指数 (`AMIDX`)** | `227` | **`SPX`** | 标普 500 |
+| **美洲指数 (`AMIDX`)** | `226` | **`SOX`** | 费城半导体指数（`费城指数`） |
+| **美洲指数 (`AMIDX`)** | `234` | `UTYI` | 费城公用 |
+| **美洲指数 (`AMIDX`)** | `236` | `XAXI` | 美证指数 |
+| **美洲指数 (`AMIDX`)** | `204` | `BVSP` | 巴西指数 |
+| **美洲指数 (`AMIDX`)** | `232` | `TSX` | S&P/TSX |
+| **欧洲指数 (`EUIDX`)** | `201`、`203`、`207`、`209`、`210`、`219`、`220`、`228`、`238`、`239` | `AEX`、`BFX`、`FCHI`、`GDAXI`、`HEX`、`OMXC20`、`OMXSPI`、`SSMI`、`SXO`、`SXED` | 荷兰、比利时、法国 CAC、德国 DAX、芬兰、丹麦、瑞典、瑞士、欧洲斯托克 600/50 |
+| **亚太指数 (`ASIDX`)** | `205`、`212`、`214`、`215`、`217`、`221`、`222`、`224`、`225`、`231`、`233`、`235` | `DFMGI`、`JKSE`、`KS11200`、`KSE100`、`N225`、`PSI`、`RTS`、`SENSEX`、`SET`、`TOPIX`、`TWII`、`VNINDEX` | 迪拜、印尼、韩国综指、卡拉奇、日经 225、菲律宾、俄 RTS、印度、泰国、东证、台湾加权、越南 |
+| **其他指数 (`OTHIDX`)** | `200`、`202`、`218`、`230` | `.TRCCRB`、`ASX200`、`OIL`、`TOP40` | 路透 CRB 商品指数、澳 ASX200、布伦特原油连续、南非 TOP40 |
 
 ### 3.3 消息类型
 
-#### 2001：指数/列表实时行情
+#### 2001：指数/列表实时行情（支持列表拉取与实时推送）
 
-适合一次订阅多个指数或证券，并接收列表数据。
+适合一次订阅多个指数或证券，并接收初始快照与实时增量推送（`Header.Info = 0` 为初始返回，`Header.Info = 4` 为实时推送帧）。
+
+**示例 A：按标的列表订阅（A 股指数示例）**
 
 ```json
 {
@@ -545,9 +574,39 @@ ws.onmessage = (event) => {
 }
 ```
 
-常见响应位置：`Body.info`、`Body.totalnum`、`Body.data[].base`、`Body.data[].newprice`、`Body.data[].yclose`、`Body.data[].szjs`、`Body.data[].xdjs`、`Body.data[].ppjs`。
+**示例 B：订阅道琼斯、纳指、标普 500、费城半导体、恒生指数**
 
-#### 201：个股实时快照/订阅
+`stockid[]` 里既可以写 `marketid`，也可以直接写全大写 `oldmarketcode`；**建议把 `respfield` 设为 `[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]`**，可同时取回 `date`、`time`、`timestamp`、`newprice`、`yclose`、`open`、`high`、`low`、`volume` 等字段（`96, 97, 98` 是涨跌平家数 `szjs/xdjs/ppjs`，外盘指数固定为 `0`；若完全省略 `respfield` 则只返回 `base` 基础信息，不返回价量字段）：
+
+```json
+{
+  "Header": { "No": 1, "MsgType": 2001 },
+  "Body": {
+    "info": {
+      "paramtype": 2,
+      "stockid": [
+        { "oldmarketcode": "AMIDX", "code": "DJIA" },
+        { "oldmarketcode": "AMIDX", "code": "IXIC" },
+        { "oldmarketcode": "AMIDX", "code": "SPX" },
+        { "oldmarketcode": "AMIDX", "code": "SOX" },
+        { "oldmarketcode": "HKIDX", "code": ".HSI" }
+      ]
+    },
+    "sortfield": 0,
+    "order": true,
+    "end": 10,
+    "respfield": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  }
+}
+```
+
+也可以把 `info` 改为 `{"paramtype": 0, "oldmarketcode": ["AMIDX"]}`、`begin: 0, end: 50`，一次拉取整组全部 8 个美洲指数（同样支持 `["EUIDX"]`、`["ASIDX"]`、`["OTHIDX"]`、`["HKIDX"]`）。
+
+常见响应位置：`Body.info`、`Body.totalnum`、`Body.data[].base`（含 `marketid`、`oldmarketcode`、`code`、`name`、`precise`；价格按 `10 ** precise` 还原，外盘指数与个股分别为 `precise=2` 和 `precise=4`）、`Body.data[].newprice`、`Body.data[].yclose`、`Body.data[].open`、`Body.data[].high`、`Body.data[].low`、`Body.data[].volume`、`Body.data[].szjs`、`Body.data[].xdjs`、`Body.data[].ppjs`。
+
+#### 201：个股/指数实时快照与订阅
+
+A 股与外盘个股/指数均支持 `201`。A 股写法如下：
 
 ```json
 {
@@ -559,9 +618,36 @@ ws.onmessage = (event) => {
 }
 ```
 
-常见响应位置：`Body.key`、`Body.hq`；`hq` 中通常包括 `newprice`、`yclose`、`open`、`high`、`low`、`mmp`、`amount`、`volume`、`zhangdief` 等字段。
+订阅**美股指数**或**美股/港股个股**时，`oldmarketcode` **必须全大写**（也可以直接传 `{"marketid": 206, "code": "DJIA"}`）：
 
-#### 501：个股盘口推送
+```json
+{
+  "Header": { "No": 2, "MsgType": 201 },
+  "Body": {
+    "key": { "oldmarketcode": "AMIDX", "code": "DJIA" },
+    "level": 2
+  }
+}
+```
+
+常见响应位置：`Body.key`、`Body.hq`；`hq` 中通常包括 `newprice`、`yclose`、`open`、`high`、`low`、`mmp`、`amount`、`volume`、`zhangdief` 等字段（指数标的的 `mmp.buy/sell` 通常为空数组）。
+
+#### 801：个股/指数分时成交明细
+
+```json
+{
+  "Header": { "No": 6, "MsgType": 801 },
+  "Body": {
+    "key": { "oldmarketcode": "sz", "code": "300052" },
+    "num": 50,
+    "timestamp": true
+  }
+}
+```
+
+常见响应位置：`Body.key`、`Body.begindex`、`Body.data[].time`、`newprice`、`xianl`、`xsfx`、`tradetype`（将 `key` 换成 `{"oldmarketcode": "AMIDX", "code": "DJIA"}` 或 `{"oldmarketcode": "NASDAQ", "code": "AAPL"}` 同样适用）。
+
+#### 501：个股/指数盘口与分钟分时推送
 
 ```json
 {
@@ -575,7 +661,7 @@ ws.onmessage = (event) => {
 }
 ```
 
-常见响应位置：`Body.key`、`Body.hq`、`Body.mmp`，以及买卖五档、涨跌停等盘口字段。
+常见响应位置：`Body.key`、`Body.hq`、`Body.mmp`（或分钟分时 `Body.data[].time/open/high/low/close/volume`），以及买卖五档、涨跌停等盘口字段（同样支持外盘个股与 `AMIDX/DJIA`、`AMIDX/IXIC`、`AMIDX/SPX` 等指数）。
 
 #### 504：个股扩展行情推送
 
@@ -590,7 +676,7 @@ ws.onmessage = (event) => {
 }
 ```
 
-常见响应位置：`Body.key` 及扩展行情字段。实时通道未授权时也可以在面板中查看和复制示例，但真正连接会被拒绝。
+常见响应位置：`Body.key` 及扩展行情字段（如盘前/盘后时段信息 `Body.period`；注意指数类标的上 `504` 的 `Body.data` 通常为空数组 `[]`）。实时通道未授权时也可以在面板中查看和复制示例，但真正连接会被拒绝。
 
 ### 3.4 Python WebSocket 示例
 
@@ -967,7 +1053,7 @@ print(timestamp_to_text(1785859200))
 
 | 字段 | 默认/示例 | 说明 |
 |---|---|---|
-| `Market` | `SZ` | 市场代码：`SZ` 深圳，`SH` 上海。 |
+| `Market` | `SZ` | 市场代码：A 股用 `SZ`/`SH`；外盘个股用 `NASDAQ`/`NYSE`/`AMEX`/`HKSE`，美洲指数用 `AMIDX`（如 `Inst: "DJIA"`）。 |
 | `Inst` | `300052` | 证券代码，不带市场前缀。 |
 | `Period` | `DAY` | 最新快照周期：`DAY` 日线、`WEEK` 周线、`MONTH` 月线。分钟周期请使用历史接口。 |
 | `ReqID` | `1` | 调用方请求编号，原样回显，便于匹配请求。 |
